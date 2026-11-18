@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>NUCLEAR CRISIS — 원자력 살아남기</title>
+<style>
+:root{--bg:#07111b;--panel:#101f2d;--line:#294253;--mint:#65e0b5;--yellow:#ffd166;--red:#ff5d6c}
+*{box-sizing:border-box}body{margin:0;background:#06101a;color:#e9f3f7;font-family:system-ui,-apple-system,"Noto Sans KR",sans-serif;overflow:hidden}
+#game{display:block;width:100vw;height:100vh;background:#091723;touch-action:none}
+.hud{position:fixed;inset:12px 12px auto;display:flex;gap:8px;align-items:flex-start;pointer-events:none;flex-wrap:wrap}
+.pill{background:#0c1b28eF;border:1px solid #315064;border-radius:12px;padding:8px 11px;font-size:12px;box-shadow:0 5px 18px #0005}
+.pill b{color:var(--mint)}.bar{height:7px;width:120px;background:#263a49;border-radius:9px;overflow:hidden;margin-top:5px}.bar i{display:block;height:100%;background:var(--mint);width:100%}
+#objective{position:fixed;top:82px;left:12px;max-width:min(390px,calc(100vw - 24px));background:#0c1b28eF;border:1px solid #315064;border-radius:12px;padding:10px 13px;font-size:13px;line-height:1.5}
+#hint{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#0c1b28eF;border:1px solid #315064;border-radius:999px;padding:9px 16px;font-size:12px;white-space:nowrap}
+#controls{position:fixed;right:14px;bottom:16px;display:grid;grid-template-columns:repeat(3,46px);gap:5px}
+#controls button{height:43px;border:1px solid #527084;border-radius:12px;background:#102536d9;color:white;font-size:18px;touch-action:none}
+#controls button:active{background:#28634f}
+.overlay{position:fixed;inset:0;background:#020910d9;display:flex;align-items:center;justify-content:center;padding:18px;z-index:5}
+.panel{width:min(560px,100%);background:linear-gradient(145deg,#142b3b,#0b1723);border:1px solid #426174;border-radius:20px;padding:23px;box-shadow:0 25px 80px #0009}
+.eyebrow{color:var(--mint);font-size:11px;font-weight:800;letter-spacing:.16em}.panel h1,.panel h2{margin:7px 0 10px}.panel p{color:#b8cbd5;line-height:1.6;font-size:14px}
+.actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:18px}.btn{border:0;border-radius:11px;padding:12px 16px;background:var(--mint);color:#062018;font-weight:800;cursor:pointer}.btn.secondary{background:#243d4e;color:#e9f3f7;border:1px solid #466174}.answers{display:grid;gap:9px;margin-top:16px}.answers button{text-align:left;background:#142b3b;color:#e9f3f7;border:1px solid #3b596b;border-radius:12px;padding:13px;cursor:pointer}.answers button:hover{border-color:var(--mint)}.small{font-size:12px;color:#91aab8}
+.hidden{display:none!important}
+#toast{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);padding:12px 18px;border-radius:12px;background:#0b1d29;border:1px solid var(--mint);z-index:4;opacity:0;pointer-events:none;transition:opacity .2s}
+@media(max-width:600px){#objective{top:104px}.pill{padding:6px 8px}.bar{width:86px}#hint{bottom:158px;font-size:11px}#controls{left:50%;right:auto;transform:translateX(-50%)}}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div class="hud">
+ <div class="pill">STAGE <b id="stage">01 / 04</b><br><span id="stageName">비상전력실</span></div>
+ <div class="pill">피폭량 <b id="dose">0</b> mSv<div class="bar"><i id="dosebar"></i></div></div>
+ <div class="pill">체력 <b id="hp">100</b>%</div>
+ <div class="pill">코인 <b id="coins">0</b> ◈</div>
+</div>
+<div id="objective">임무: 비상 발전기의 전원을 복구하라.</div>
+<div id="hint">이동: WASD / 방향키 · 상호작용: E</div>
+<div id="controls">
+ <span></span><button data-key="ArrowUp">▲</button><span></span>
+ <button data-key="ArrowLeft">◀</button><button data-key="ArrowDown">▼</button><button data-key="ArrowRight">▶</button>
+</div>
+<div id="toast"></div>
+<div class="overlay" id="start">
+ <div class="panel"><div class="eyebrow">SURVIVAL SIMULATOR · TRAINING BUILD</div><h1>☢ 원자력 살아남기</h1>
+ <p>원전 사고가 발생했다. 제한된 시간과 방사선량 안에서 시설을 복구하고 탈출하라. 설비를 조사할 때마다 원자력·열역학·환경공학 퀴즈가 등장한다.</p>
+ <p><b>조작</b>　WASD / 방향키 이동 · E 상호작용<br><b>주의</b>　방사선 구역에 오래 머물면 피폭량이 누적된다. 퀴즈 오답은 즉시 사망이다.</p>
+ <div class="actions"><button class="btn" id="startBtn">작전 시작</button><button class="btn secondary" id="howBtn">생존 팁</button></div><p class="small">가상의 교육용 시뮬레이터입니다. 실제 원전 조작 절차를 대체하지 않습니다.</p></div>
+</div>
+<div class="overlay hidden" id="modal"><div class="panel" id="modalContent"></div></div>
+<script>
+(()=>{
+const canvas=document.getElementById('game'),ctx=canvas.getContext('2d');
+let W=0,H=0,scale=1,camX=0,camY=0,last=0,running=false,dead=false;
+const keys={}; const $=id=>document.getElementById(id);
+const stages=[
+ {name:'비상전력실',mission:'비상 발전기 제어반을 작동시켜 냉각계통 전력을 복구하라.',risk:0.8,objects:[['발전기 제어반',0,0,'power'],['연료 밸브',-210,100,'valve'],['배전반',220,-100,'switch']]},
+ {name:'터빈실',mission:'터빈실의 증기 공급을 차단하고 압력을 안전 범위로 낮춰라.',risk:1.2,objects:[['주증기 격리밸브',0,0,'steam'],['압력 계기',-220,-90,'gauge'],['배수 장치',210,110,'drain']]},
+ {name:'냉각·폐기물 구역',mission:'냉각수 순환을 복구하고 방사성 폐기물 용기를 안전 구역으로 이동시켜라.',risk:2.0,objects:[['냉각수 펌프',-150,-70,'pump'],['폐기물 용기',180,70,'waste'],['열교환기',0,-180,'heat']]},
+ {name:'원자로 격납건물',mission:'노심 냉각 상태를 확인하고 최종 비상 냉각 절차를 완료하라.',risk:3.2,objects:[['비상노심냉각 계통',0,0,'eccs'],['격납건물 제어반',-220,100,'contain'],['최종 안전 확인',220,-100,'final']]}
+];
+const quizzes={
+ power:{q:'외부 전원 상실 시 비상 디젤발전기의 주된 역할은?',a:['원자로 출력을 높인다','안전 계통에 전력을 공급한다','사용후핵연료를 재처리한다','터빈 회전수를 증가시킨다'],c:1,why:'비상 디젤발전기는 외부 전원 상실 시 안전 관련 설비에 필요한 교류전력을 공급한다.'},
+ valve:{q:'발전기 연료 공급 계통에서 밸브를 조작하기 전 가장 먼저 확인할 사항은?',a:['계통 압력과 밸브 상태','외부 기온','터빈 회전수','건물 조명'],c:0,why:'계통 상태와 밸브의 현재 위치를 확인해야 안전한 조작 판단이 가능하다.'},
+ switch:{q:'전력 계통에서 차단기의 핵심 기능은?',a:['열을 냉각수로 전달','회로의 전류를 개폐·차단','방사선을 흡수','증기를 물로 응축'],c:1,why:'차단기는 정상 운전 시 회로를 개폐하고 고장 전류 등을 차단한다.'},
+ steam:{q:'증기 터빈에서 증기가 가진 에너지는 주로 무엇으로 변환되는가?',a:['전기에너지 직접 변환','회전하는 축의 기계적 에너지','핵에너지','화학에너지'],c:1,why:'고온·고압 증기가 터빈 날개를 밀어 회전 운동을 만들고 발전기가 이를 전기에너지로 바꾼다.'},
+ gauge:{q:'압력 계기의 값을 읽을 때 단위로 가장 적절한 것은?',a:['Pa 또는 bar','kg/m³만','m/s만','kWh만'],c:0,why:'압력은 Pa, kPa, MPa, bar 등의 단위로 나타낸다.'},
+ drain:{q:'증기 계통에서 응축수를 배출하는 주요 이유는?',a:['수격작용과 설비 손상 방지','방사능 생성','전압 상승','연료 농축'],c:0,why:'응축수가 고이면 수격작용과 터빈·배관 손상을 일으킬 수 있다.'},
+ pump:{q:'원전 냉각수 펌프가 수행하는 기능은?',a:['유체에 에너지를 공급해 순환시킨다','방사선을 중화한다','핵분열을 직접 멈춘다','증기 압력을 전기로 바꾼다'],c:0,why:'펌프는 유체에 기계적 에너지를 전달해 유량과 압력을 확보한다.'},
+ waste:{q:'방사성 폐기물 관리의 기본 원칙으로 가장 적절한 것은?',a:['종류와 방사능 특성에 따라 분류·격리','일반 쓰레기와 혼합','개방된 장소에 보관','표지 없이 이동'],c:0,why:'폐기물은 방사능·물리화학적 특성에 따라 분류하고 차폐·격리·기록 관리한다.'},
+ heat:{q:'열교환기의 주된 기능은?',a:['두 유체 사이 열 전달','유체의 질량 생성','방사선량 측정','전기 저항 제거'],c:0,why:'열교환기는 서로 섞이지 않는 유체 사이에서 열을 전달한다.'},
+ eccs:{q:'비상노심냉각계통(ECCS)의 주된 목적은?',a:['노심에 냉각수를 공급해 연료 온도 상승을 억제','터빈 효율 증가','사용후핵연료 운송','발전소 외부 전력 판매'],c:0,why:'냉각재 상실 등 비상 상황에서 노심에 냉각수를 공급해 연료의 과열을 방지한다.'},
+ contain:{q:'격납건물의 핵심 안전 기능은?',a:['방사성 물질의 외부 방출 억제','전력 생산','증기 압축','냉각탑 대체'],c:0,why:'격납건물은 사고 시 방사성 물질이 환경으로 방출되는 것을 억제하는 방벽이다.'},
+ final:{q:'원자로에서 제어봉을 삽입하면 일반적으로 어떤 변화가 일어나는가?',a:['중성자 흡수가 증가해 핵분열 연쇄반응이 억제된다','냉각수 유량이 무조건 증가한다','터빈 출력만 상승한다','방사선이 즉시 사라진다'],c:0,why:'제어봉은 중성자를 흡수해 반응도를 낮추고 핵분열 연쇄반응을 제어한다.'}
+};
+let stage=0,player={x:0,y:230},dose=0,hp=100,coins=0,armor=0,gloves=0,done=new Set(),objects=[],particles=[];
+function resize(){W=canvas.width=innerWidth*devicePixelRatio;H=canvas.height=innerHeight*devicePixelRatio;ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);W=innerWidth;H=innerHeight}
+addEventListener('resize',resize);resize();
+function loadStage(){objects=stages[stage].objects.map((o,i)=>({name:o[0],x:o[1],y:o[2],type:o[3],id:stage+'-'+i,done:done.has(stage+'-'+i)}));player={x:0,y:250};$('stage').textContent=String(stage+1).padStart(2,'0')+' / 04';$('stageName').textContent=stages[stage].name;$('objective').textContent='임무: '+stages[stage].mission}
+function toast(s){$('toast').textContent=s;$('toast').style.opacity=1;setTimeout(()=>$('toast').style.opacity=0,1500)}
+function openModal(html){$('modalContent').innerHTML=html;$('modal').classList.remove('hidden')}
+function closeModal(){$('modal').classList.add('hidden')}
+function interact(){let target=objects.filter(o=>!o.done).sort((a,b)=>Math.hypot(a.x-player.x,a.y-player.y)-Math.hypot(b.x-player.x,b.y-player.y))[0];if(!target||Math.hypot(target.x-player.x,target.y-player.y)>82){toast('상호작용할 설비에 더 가까이 가세요.');return}showQuiz(target)}
+function showQuiz(obj){let q=quizzes[obj.type];openModal(`<div class="eyebrow">SYSTEM CHECK · ${stages[stage].name}</div><h2>${obj.name}</h2><p>${q.q}</p><div class="answers">${q.a.map((a,i)=>`<button data-answer="${i}">${i+1}. ${a}</button>`).join('')}</div><p class="small">정답을 선택해야 임무를 진행할 수 있습니다. 오답은 즉시 작전 실패로 이어집니다.</p>`);$('modalContent').querySelectorAll('[data-answer]').forEach(b=>b.onclick=()=>{if(+b.dataset.answer!==q.c){closeModal();die('지식 판단 오류 — '+q.why)}else{closeModal();obj.done=true;done.add(obj.id);coins+=35;dose+=Math.max(2,Math.round(stages[stage].risk*3));toast('정답! 코인 +35 · '+q.why);updateHUD();if(objects.every(o=>o.done))stageClear()}})}
+function stageClear(){openModal(`<div class="eyebrow">STAGE CLEAR</div><h2>임무 완료</h2><p>${stages[stage].name}의 주요 임무를 완료했다. 다음 구역으로 이동하기 전 장비를 보강할 수 있다.</p><p>보유 코인: <b>${coins} ◈</b></p><div class="actions"><button class="btn" id="buyArmor">방호복 강화 · 60 ◈</button><button class="btn secondary" id="buyGloves">보호장갑 · 45 ◈</button><button class="btn" id="next">다음 구역</button></div><p class="small">방호복은 피폭 누적 속도를 낮추고, 보호장갑은 작업 중 체력 손실을 줄입니다.</p>`);$('buyArmor').onclick=()=>buy('armor',60);$('buyGloves').onclick=()=>buy('gloves',45);$('next').onclick=()=>{closeModal();if(stage===3)win();else{stage++;loadStage();toast('새 구역 진입 — 방사선 환경이 더 위험합니다.')}}}
+function buy(type,cost){if(coins<cost){toast('코인이 부족합니다.');return}if(type==='armor'){armor++;coins-=cost}else{gloves++;coins-=cost}updateHUD();toast('장비 업그레이드 완료!');}
+function updateHUD(){$('dose').textContent=Math.round(dose);$('dosebar').style.width=Math.min(100,dose/100*100)+'%';$('dosebar').style.background=dose>75?'var(--red)':'var(--mint)';$('hp').textContent=Math.max(0,Math.round(hp));$('coins').textContent=coins}
+function die(reason){dead=true;running=false;openModal(`<div class="eyebrow" style="color:var(--red)">MISSION FAILED</div><h1>☢ 생존 실패</h1><p>${reason}</p><p>최종 피폭량: ${Math.round(dose)} mSv</p><div class="actions"><button class="btn" id="retry">처음부터 재도전</button></div>`);$('retry').onclick=()=>location.reload()}
+function win(){running=false;openModal(`<div class="eyebrow">MISSION COMPLETE</div><h1>생존 성공</h1><p>4개 구역의 비상 임무를 모두 완료했다. 제한된 자원과 피폭 위험 속에서 원전 안전 계통을 복구했다.</p><p>최종 피폭량 ${Math.round(dose)} mSv · 잔여 코인 ${coins} ◈</p><div class="actions"><button class="btn" onclick="location.reload()">다시 플레이</button></div>`)}
+function draw(){ctx.clearRect(0,0,W,H);let zoom=Math.min(W/850,H/560,1.25)*1.1;let ox=W/2-player.x*zoom,oy=H/2-player.y*zoom;ctx.save();ctx.translate(ox,oy);ctx.scale(zoom,zoom);
+ // floor grid
+ ctx.fillStyle='#0b1b28';ctx.fillRect(-900,-650,1800,1300);ctx.strokeStyle='#183346';ctx.lineWidth=1;for(let x=-900;x<=900;x+=50){ctx.beginPath();ctx.moveTo(x,-650);ctx.lineTo(x,650);ctx.stroke()}for(let y=-650;y<=650;y+=50){ctx.beginPath();ctx.moveTo(-900,y);ctx.lineTo(900,y);ctx.stroke()}
+ // walls
+ ctx.fillStyle='#213747';ctx.fillRect(-430,-300,860,18);ctx.fillRect(-430,300,860,18);ctx.fillRect(-430,-300,18,618);ctx.fillRect(412,-300,18,618);
+ // radiation zones
+ ctx.fillStyle='#b18a2b20';ctx.beginPath();ctx.arc(0,0,265,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#b88d38';ctx.setLineDash([10,8]);ctx.beginPath();ctx.arc(0,0,265,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);
+ // machinery
+ for(let i=0;i<5;i++){let x=-320+i*160,y=-215;ctx.fillStyle='#294b5e';ctx.fillRect(x,y,92,55);ctx.fillStyle='#5d8192';ctx.fillRect(x+8,y+8,76,6);ctx.fillStyle='#152b39';ctx.fillRect(x+12,y+22,68,22);ctx.fillStyle=i%2?'#65e0b5':'#ffd166';ctx.fillRect(x+18,y+29,8,8)}
+ // pipes
+ ctx.strokeStyle='#718b96';ctx.lineWidth=12;ctx.beginPath();ctx.moveTo(-360,120);ctx.lineTo(-100,120);ctx.lineTo(-100,205);ctx.lineTo(320,205);ctx.stroke();ctx.strokeStyle='#b5c5c8';ctx.lineWidth=3;ctx.stroke();
+ objects.forEach(o=>{ctx.save();ctx.translate(o.x,o.y);ctx.fillStyle=o.done?'#245b50':'#29485b';ctx.strokeStyle=o.done?'#65e0b5':'#ffd166';ctx.lineWidth=3;ctx.beginPath();ctx.roundRect(-43,-31,86,62,10);ctx.fill();ctx.stroke();ctx.fillStyle=o.done?'#65e0b5':'#f0c96a';ctx.beginPath();ctx.arc(0,-2,12,0,Math.PI*2);ctx.fill();ctx.fillStyle='#eaf4f5';ctx.font='12px sans-serif';ctx.textAlign='center';ctx.fillText(o.done?'완료':o.name,0,48);if(!o.done){ctx.strokeStyle='#ffd166';ctx.lineWidth=2;ctx.beginPath();ctx.arc(0,0,52+Math.sin(performance.now()/220)*4,0,Math.PI*2);ctx.stroke()}ctx.restore()});
+ // player
+ ctx.fillStyle='#0008';ctx.beginPath();ctx.ellipse(player.x,player.y+20,17,7,0,0,Math.PI*2);ctx.fill();ctx.fillStyle='#65e0b5';ctx.beginPath();ctx.arc(player.x,player.y,15,0,Math.PI*2);ctx.fill();ctx.fillStyle='#0a2630';ctx.fillRect(player.x-9,player.y-5,18,17);ctx.fillStyle='#dff';ctx.fillRect(player.x-7,player.y-11,14,7);ctx.fillStyle='#fff';ctx.font='11px sans-serif';ctx.textAlign='center';ctx.fillText('YOU',player.x,player.y+34);
+ ctx.restore();
+}
+function update(dt){if(!running||$('modal').classList.contains('hidden')===false)return;let dx=0,dy=0;if(keys.ArrowUp||keys.w)dy--;if(keys.ArrowDown||keys.s)dy++;if(keys.ArrowLeft||keys.a)dx--;if(keys.ArrowRight||keys.d)dx++;let len=Math.hypot(dx,dy)||1;player.x=Math.max(-390,Math.min(390,player.x+dx/len*190*dt));player.y=Math.max(-260,Math.min(260,player.y+dy/len*190*dt));let inZone=Math.hypot(player.x,player.y)<265; if(inZone)dose+=dt*stages[stage].risk*1.7/(1+armor*.35);if(dose>100)die('피폭 한계 초과. 방사선 구역에서 벗어나고 체류 시간을 줄였어야 합니다.');if(Math.floor(performance.now()/1000)%2===0){}updateHUD()}
+function loop(t){let dt=Math.min((t-last)/1000||0,.04);last=t;update(dt);draw();requestAnimationFrame(loop)}
+addEventListener('keydown',e=>{keys[e.key]=true;if(e.key.toLowerCase()==='e'&&running)interact();if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key))e.preventDefault()});
+addEventListener('keyup',e=>keys[e.key]=false);
+document.querySelectorAll('#controls button').forEach(b=>{let k=b.dataset.key;b.addEventListener('pointerdown',e=>{e.preventDefault();keys[k]=true});['pointerup','pointercancel','pointerleave'].forEach(ev=>b.addEventListener(ev,()=>keys[k]=false))});
+$('startBtn').onclick=()=>{$('start').classList.add('hidden');running=true;loadStage();toast('작전 개시. 설비에 접근해 E를 누르세요.')};
+$('howBtn').onclick=()=>openModal('<div class="eyebrow">SURVIVAL GUIDE</div><h2>생존 팁</h2><p>① 노란 원형 표시가 있는 설비로 이동해 E를 누르세요.<br>② 퀴즈 정답을 맞히면 임무가 진행되고 코인을 얻습니다.<br>③ 중앙 방사선 구역에 오래 머무르지 마세요.<br>④ 스테이지 사이 상점에서 방호복을 강화하세요.</p><div class="actions"><button class="btn" id="ok">확인</button></div>'),document.addEventListener('click',e=>{if(e.target.id==='ok')closeModal()});
+loadStage();requestAnimationFrame(loop);
+})();
+</script>
+</body></html>
